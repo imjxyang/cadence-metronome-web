@@ -1,75 +1,93 @@
-# React + TypeScript + Vite
+# Cadence Metronome Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A minimal cadence metronome built with React, TypeScript, and Vite.
 
-Currently, two official plugins are available:
+It provides a single-screen metronome UI for running and training drills, with responsive layout support for both desktop and mobile browsers.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- Cadence selector from `60` to `220` BPM in `5 BPM` steps
+- Single `Start` / `Stop` toggle button
+- `15` built-in cue sounds:
+  `Click`, `Beep`, `Clap`, `Tick`, `Woodblock`, `Rim`, `Hi-Hat`, `Cowbell`, `Shaker`, `Clave`, `Bell`, `Pulse`, `Low Tone`, `High Tone`, `Snap`
+- Live cadence readout with beat interval in milliseconds
+- Lightweight visual beat indicator
+- Recovery-oriented audio error messages for mobile/browser autoplay restrictions
+- Responsive single-card layout with safe-area support and reduced-motion handling
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## Tech Stack
 
-Note: This will impact Vite dev & build performances.
+- React `19`
+- TypeScript
+- Vite
+- Web Audio API
+- Biome
 
-## Expanding the ESLint configuration
+## How It Works
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Audio is generated in code with the Web Audio API.
+- Cue sounds are synthesized into in-memory `AudioBuffer`s at startup.
+- Playback uses `setInterval` with `60000 / BPM` timing.
+- Changing cadence while playing restarts the interval with the new BPM.
+- Changing cue while playing applies on the next beat.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Development
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Install dependencies:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Start the dev server:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm dev
 ```
+
+Create a production build:
+
+```bash
+pnpm build
+```
+
+Preview the production build locally:
+
+```bash
+pnpm preview
+```
+
+Run formatting and checks:
+
+```bash
+pnpm check
+```
+
+## Project Structure
+
+```text
+.
+├── doc/
+│   └── task.md
+├── public/
+│   └── favicon.svg
+├── src/
+│   ├── audio/
+│   │   └── metronome.ts
+│   ├── components/
+│   │   ├── BPMControl.tsx
+│   │   ├── PlayerControls.tsx
+│   │   └── SoundSelector.tsx
+│   ├── App.css
+│   ├── App.tsx
+│   ├── index.css
+│   └── main.tsx
+├── index.html
+├── package.json
+└── vite.config.ts
+```
+
+## Notes
+
+- No external sound files are required right now; all cues are synthesized in `src/audio/metronome.ts`.
+- On mobile Safari and some browsers, audio may require an explicit user interaction before playback starts. If audio fails, the app shows a recovery hint in the UI.
