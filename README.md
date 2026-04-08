@@ -4,6 +4,10 @@ A minimal cadence metronome built with React, TypeScript, and Vite.
 
 It provides a single-screen metronome UI for running and training drills, with responsive layout support for both desktop and mobile browsers.
 
+## Preview
+
+[cadence-metronome-web.vercel.app](https://cadence-metronome-web.vercel.app/)
+
 ## Features
 
 - Cadence selector from `60` to `220` BPM in `5 BPM` steps
@@ -14,6 +18,7 @@ It provides a single-screen metronome UI for running and training drills, with r
 - Lightweight visual beat indicator
 - Recovery-oriented audio error messages for mobile/browser autoplay restrictions
 - Responsive single-card layout with safe-area support and reduced-motion handling
+- PWA support with installable app metadata and offline-ready app shell caching
 
 ## Tech Stack
 
@@ -21,6 +26,8 @@ It provides a single-screen metronome UI for running and training drills, with r
 - TypeScript
 - Vite
 - Web Audio API
+- Service Worker
+- Web App Manifest
 - Biome
 
 ## How It Works
@@ -30,6 +37,13 @@ It provides a single-screen metronome UI for running and training drills, with r
 - Playback uses `setInterval` with `60000 / BPM` timing.
 - Changing cadence while playing restarts the interval with the new BPM.
 - Changing cue while playing applies on the next beat.
+
+## PWA
+
+- The app includes a web app manifest for installability on Android, desktop Chrome, and other supported browsers.
+- A service worker caches the app shell and static assets so the UI can reopen after the first successful online load.
+- Apple touch icons and PWA icons are included for home screen installation.
+- Audio is still generated at runtime with the Web Audio API, so PWA support focuses on installability and offline app access rather than downloading sound files.
 
 ## Development
 
@@ -70,7 +84,12 @@ pnpm check
 ├── doc/
 │   └── task.md
 ├── public/
-│   └── favicon.svg
+│   ├── apple-touch-icon.png
+│   ├── manifest.webmanifest
+│   ├── pwa-192.png
+│   ├── pwa-512.png
+│   ├── favicon.svg
+│   └── sw.js
 ├── src/
 │   ├── audio/
 │   │   └── metronome.ts
@@ -91,3 +110,4 @@ pnpm check
 
 - No external sound files are required right now; all cues are synthesized in `src/audio/metronome.ts`.
 - On mobile Safari and some browsers, audio may require an explicit user interaction before playback starts. If audio fails, the app shows a recovery hint in the UI.
+- Service worker updates follow the normal browser lifecycle, so a freshly deployed version may appear after refresh or when the old worker is replaced.
