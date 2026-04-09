@@ -22,6 +22,7 @@ export type MetronomeStatus =
 	| "ready"
 	| "starting"
 	| "playing"
+	| "recovering"
 	| "error";
 
 type StartOptions = {
@@ -29,15 +30,25 @@ type StartOptions = {
 	sound: MetronomeSound;
 };
 
-type TickHandler = (() => void) | null;
+type TickHandler = ((delayMs: number) => void) | null;
+type AudioStateHandler = ((state: AudioContextState) => void) | null;
 type SampleGenerator = (
 	index: number,
 	frameCount: number,
 	sampleRate: number,
 ) => number;
+type ScheduledBeat = {
+	gainNode: GainNode;
+	source: AudioBufferSourceNode;
+	time: number;
+};
 
 const MASTER_GAIN = 0.72;
 const TWO_PI = Math.PI * 2;
+const INITIAL_SCHEDULE_OFFSET_SECONDS = 0.05;
+const RESCHEDULE_OFFSET_SECONDS = 0.05;
+const SCHEDULE_AHEAD_TIME_SECONDS = 0.75;
+const SCHEDULER_LOOKAHEAD_MS = 25;
 
 export function getMetronomeSoundLabel(sound: MetronomeSound) {
 	return (
@@ -87,25 +98,45 @@ export class MetronomeEngine {
 	private audioContext: AudioContext | null = null;
 	private buffers: Partial<Record<MetronomeSound, AudioBuffer>> = {};
 	private loadingPromise: Promise<void> | null = null;
-	private intervalId: number | null = null;
+	private schedulerIntervalId: number | null = null;
+	private scheduledBeats: ScheduledBeat[] = [];
+	private nextBeatTime = 0;
 	private currentBpm = 120;
 	private currentSound: MetronomeSound = "click";
+	private isPlaying = false;
 	private onTick: TickHandler = null;
+	private onAudioStateChange: AudioStateHandler = null;
 
 	setOnTick(handler: TickHandler) {
 		this.onTick = handler;
 	}
 
+	setOnAudioStateChange(handler: AudioStateHandler) {
+		this.onAudioStateChange = handler;
+
+		if (this.audioContext) {
+			handler?.(this.audioContext.state);
+		}
+	}
+
+	isPlaybackActive() {
+		return this.isPlaying;
+	}
+
 	updateBpm(nextBpm: number) {
 		this.currentBpm = nextBpm;
 
-		if (this.intervalId !== null) {
-			this.restartInterval();
+		if (this.isPlaying) {
+			this.rescheduleFromNow();
 		}
 	}
 
 	updateSound(nextSound: MetronomeSound) {
 		this.currentSound = nextSound;
+
+		if (this.isPlaying) {
+			this.rescheduleFromNow();
+		}
 	}
 
 	async prepare() {
@@ -118,6 +149,8 @@ export class MetronomeEngine {
 	}
 
 	async start({ bpm, sound }: StartOptions) {
+		this.stop();
+
 		this.currentBpm = bpm;
 		this.currentSound = sound;
 
@@ -127,19 +160,38 @@ export class MetronomeEngine {
 			throw new Error("Audio context is unavailable in this browser.");
 		}
 
-		if (this.audioContext.state === "suspended") {
+		if (this.audioContext.state !== "running") {
 			await this.audioContext.resume();
 		}
 
-		this.stop();
-		this.playCurrentBuffer();
-		this.restartInterval();
+		this.isPlaying = true;
+		this.nextBeatTime =
+			this.audioContext.currentTime + INITIAL_SCHEDULE_OFFSET_SECONDS;
+		this.startScheduler();
+		this.schedulePendingBeats();
 	}
 
 	stop() {
-		if (this.intervalId !== null) {
-			window.clearInterval(this.intervalId);
-			this.intervalId = null;
+		this.isPlaying = false;
+		this.stopScheduler();
+		this.cancelScheduledBeats();
+	}
+
+	async resumePlayback() {
+		await this.prepare();
+
+		if (!this.audioContext) {
+			throw new Error("Audio context is unavailable in this browser.");
+		}
+
+		const wasRunning = this.audioContext.state === "running";
+
+		if (!wasRunning) {
+			await this.audioContext.resume();
+		}
+
+		if (this.isPlaying && (!wasRunning || this.schedulerIntervalId === null)) {
+			this.rescheduleFromNow();
 		}
 	}
 
@@ -147,6 +199,7 @@ export class MetronomeEngine {
 		this.stop();
 
 		if (this.audioContext) {
+			this.audioContext.onstatechange = null;
 			void this.audioContext.close();
 			this.audioContext = null;
 		}
@@ -190,20 +243,101 @@ export class MetronomeEngine {
 		this.audioContext = new AudioContextConstructor({
 			latencyHint: "interactive",
 		});
+		this.audioContext.onstatechange = () => {
+			const state = this.audioContext?.state;
+
+			if (!state) {
+				return;
+			}
+
+			if (state === "closed") {
+				this.stop();
+			} else if (state !== "running") {
+				this.stopScheduler();
+			}
+
+			if (
+				state === "running" &&
+				this.isPlaying &&
+				this.schedulerIntervalId === null
+			) {
+				this.rescheduleFromNow();
+			}
+
+			this.onAudioStateChange?.(state);
+		};
+		this.onAudioStateChange?.(this.audioContext.state);
 
 		return this.audioContext;
 	}
 
-	private restartInterval() {
-		this.stop();
+	private rescheduleFromNow() {
+		if (!this.audioContext || !this.isPlaying) {
+			return;
+		}
 
-		const interval = 60000 / this.currentBpm;
-		this.intervalId = window.setInterval(() => {
-			this.playCurrentBuffer();
-		}, interval);
+		this.cancelScheduledBeats();
+		this.nextBeatTime =
+			this.audioContext.currentTime + RESCHEDULE_OFFSET_SECONDS;
+		this.startScheduler();
+		this.schedulePendingBeats();
 	}
 
-	private playCurrentBuffer() {
+	private startScheduler() {
+		if (this.schedulerIntervalId !== null) {
+			return;
+		}
+
+		this.schedulerIntervalId = window.setInterval(() => {
+			if (!this.audioContext || !this.isPlaying) {
+				return;
+			}
+
+			if (this.audioContext.state !== "running") {
+				return;
+			}
+
+			this.schedulePendingBeats();
+		}, SCHEDULER_LOOKAHEAD_MS);
+	}
+
+	private stopScheduler() {
+		if (this.schedulerIntervalId !== null) {
+			window.clearInterval(this.schedulerIntervalId);
+			this.schedulerIntervalId = null;
+		}
+	}
+
+	private cancelScheduledBeats() {
+		for (const beat of this.scheduledBeats) {
+			try {
+				beat.source.stop();
+			} catch {
+				// Ignore stop errors for sources that have already finished.
+			}
+
+			beat.source.disconnect();
+			beat.gainNode.disconnect();
+		}
+
+		this.scheduledBeats = [];
+	}
+
+	private schedulePendingBeats() {
+		if (!this.audioContext || this.audioContext.state !== "running") {
+			return;
+		}
+
+		while (
+			this.nextBeatTime <
+			this.audioContext.currentTime + SCHEDULE_AHEAD_TIME_SECONDS
+		) {
+			this.scheduleBeatAt(this.nextBeatTime);
+			this.nextBeatTime += 60 / this.currentBpm;
+		}
+	}
+
+	private scheduleBeatAt(noteTime: number) {
 		if (!this.audioContext) {
 			return;
 		}
@@ -215,15 +349,34 @@ export class MetronomeEngine {
 
 		const source = this.audioContext.createBufferSource();
 		const gainNode = this.audioContext.createGain();
+		const scheduledBeat: ScheduledBeat = {
+			gainNode,
+			source,
+			time: noteTime,
+		};
 
 		source.buffer = buffer;
 		gainNode.gain.value = MASTER_GAIN;
 
 		source.connect(gainNode);
 		gainNode.connect(this.audioContext.destination);
-		source.start();
+		source.addEventListener(
+			"ended",
+			() => {
+				this.scheduledBeats = this.scheduledBeats.filter(
+					(beat) => beat !== scheduledBeat,
+				);
+				source.disconnect();
+				gainNode.disconnect();
+			},
+			{ once: true },
+		);
+		source.start(noteTime);
+		this.scheduledBeats.push(scheduledBeat);
 
-		this.onTick?.();
+		this.onTick?.(
+			Math.max(0, (noteTime - this.audioContext.currentTime) * 1000),
+		);
 	}
 
 	private createClickBuffer(context: AudioContext) {
