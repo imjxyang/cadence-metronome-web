@@ -80,6 +80,14 @@ function App() {
 		metronome.updateBpm(bpm);
 	}, [bpm]);
 
+	const soundLabel = getMetronomeSoundLabel(sound);
+	const playbackStatusLabel =
+		status === "starting"
+			? `Starting ${soundLabel}`
+			: isPlaying
+				? `Playing ${soundLabel}`
+				: "Ready";
+
 	async function handleTogglePlayback() {
 		if (status === "starting") {
 			return;
@@ -115,18 +123,6 @@ function App() {
 						<p className="eyebrow">Cadence Metronome</p>
 						<h1>Simple rhythm support for runs and drills.</h1>
 					</div>
-
-					<div className="status-block" aria-live="polite">
-						<span
-							className="status-dot"
-							data-playing={isPlaying}
-							data-pulse={isPulseActive ? "on" : "off"}
-							aria-hidden="true"
-						/>
-						<p className="status-text">
-							{isPlaying ? `Playing ${getMetronomeSoundLabel(sound)}` : "Ready"}
-						</p>
-					</div>
 				</header>
 
 				<section className="meter-block" aria-label="Current cadence">
@@ -146,7 +142,9 @@ function App() {
 				<PlayerControls
 					isBusy={status === "starting"}
 					isPlaying={isPlaying}
+					isPulseActive={isPulseActive}
 					onToggle={handleTogglePlayback}
+					statusLabel={playbackStatusLabel}
 				/>
 			</section>
 
