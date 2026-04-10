@@ -1,10 +1,9 @@
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import "./index.css";
-
-import { StrictMode } from "react";
-
 import App from "./App.tsx";
+
+import "./index.css";
 
 async function registerServiceWorker() {
 	if (!import.meta.env.PROD || !("serviceWorker" in navigator)) {
